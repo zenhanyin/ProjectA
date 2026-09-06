@@ -17,6 +17,15 @@
     return hours * 60 + minutes;
   }
 
+  function isValidWorkSchedule(settings) {
+    return parseTimeToMinutes(settings.workEnd) > parseTimeToMinutes(settings.workStart);
+  }
+
+  function isWorkday(date = new Date()) {
+    const day = date.getDay();
+    return day >= 1 && day <= 5;
+  }
+
   function startOfDay(date) {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate());
   }
@@ -46,33 +55,62 @@
   function getWorkWindow(settings, now = new Date()) {
     const start = combineDateAndTime(now, settings.workStart);
     const configuredEnd = combineDateAndTime(now, settings.workEnd);
-    if (configuredEnd <= start) configuredEnd.setDate(configuredEnd.getDate() + 1);
+    if (!isValidWorkSchedule(settings)) {
+      return { start, configuredEnd, end: start, valid: false };
+    }
 
     const maxWorkDuration = Math.max(0, number(settings.workingHoursPerDay) * MS_PER_HOUR);
     const cappedEnd = new Date(start.getTime() + Math.min(configuredEnd - start, maxWorkDuration));
-    return { start, configuredEnd, end: cappedEnd };
+    return { start, configuredEnd, end: cappedEnd, valid: true };
   }
 
   function getWorkedMilliseconds(settings, now = new Date()) {
-    const { start, end } = getWorkWindow(settings, now);
-    if (now <= start) return 0;
+    if (!isWorkday(now)) return 0;
+    const { start, end, valid } = getWorkWindow(settings, now);
+    if (!valid || now <= start) return 0;
     return clamp(now - start, 0, end - start);
   }
 
   function getWorkdayProgress(settings, now = new Date()) {
-    const { start, end } = getWorkWindow(settings, now);
+    const { start, end, valid } = getWorkWindow(settings, now);
+    const nonWorkingDay = !isWorkday(now);
     const total = Math.max(1, end - start);
-    const worked = getWorkedMilliseconds(settings, now);
+    const worked = valid && !nonWorkingDay ? getWorkedMilliseconds(settings, now) : 0;
+    const completed = valid && !nonWorkingDay && worked >= total;
+
     return {
-      started: now >= start,
-      completed: worked >= total,
-      progress: clamp(worked / total, 0, 1),
+      valid,
+      nonWorkingDay,
+      started: valid && !nonWorkingDay && now >= start,
+      completed,
+      progress: valid && !nonWorkingDay ? clamp(worked / total, 0, 1) : 0,
       workedMilliseconds: worked,
-      remainingMilliseconds: Math.max(0, total - worked),
-      totalMilliseconds: total,
+      remainingMilliseconds: valid && !nonWorkingDay ? Math.max(0, total - worked) : 0,
+      totalMilliseconds: valid ? total : 0,
       start,
       end
     };
+  }
+
+  function getEffectiveWorkMillisecondsBetween(settings, from, to) {
+    const startAt = new Date(from);
+    const endAt = new Date(to);
+    if (!isValidWorkSchedule(settings) || endAt <= startAt) return 0;
+
+    let cursor = startOfDay(startAt);
+    let total = 0;
+    while (cursor <= endAt) {
+      if (isWorkday(cursor)) {
+        const work = getWorkWindow(settings, cursor);
+        if (work.valid) {
+          const overlapStart = Math.max(startAt.getTime(), work.start.getTime());
+          const overlapEnd = Math.min(endAt.getTime(), work.end.getTime());
+          if (overlapEnd > overlapStart) total += overlapEnd - overlapStart;
+        }
+      }
+      cursor = new Date(cursor.getTime() + MS_PER_DAY);
+    }
+    return total;
   }
 
   function getTodayEarned(settings, now = new Date()) {
@@ -82,7 +120,7 @@
 
   function isWithinWorkTime(settings, now = new Date()) {
     const progress = getWorkdayProgress(settings, now);
-    return progress.started && !progress.completed;
+    return progress.valid && progress.started && !progress.completed && !progress.nonWorkingDay;
   }
 
   function isSameDay(isoValue, now = new Date()) {
@@ -132,7 +170,9 @@
       remainingMilliseconds: workday.remainingMilliseconds,
       progress: workday.progress,
       completed: workday.completed,
-      started: workday.started
+      started: workday.started,
+      nonWorkingDay: workday.nonWorkingDay,
+      valid: workday.valid
     };
   }
 
@@ -212,9 +252,13 @@
   window.LifeCapitalCalculations = {
     number,
     clamp,
+    parseTimeToMinutes,
+    isValidWorkSchedule,
+    isWorkday,
     getIncomeRates,
     getWorkWindow,
     getWorkdayProgress,
+    getEffectiveWorkMillisecondsBetween,
     getWorkedMilliseconds,
     getTodayEarned,
     isWithinWorkTime,

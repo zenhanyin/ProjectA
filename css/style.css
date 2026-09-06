@@ -464,3 +464,17 @@ input:focus, select:focus {
   .inline-account-form, .inline-goal-form { width: 100%; }
   .hero-percent { font-size: clamp(3.5rem, 23vw, 6rem); }
 }
+
+.form-error {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(164, 111, 32, 0.34);
+  border-radius: 8px;
+  color: #7a4a08;
+  background: #fff8e8;
+  font-weight: 750;
+}
+
+.quick-add[hidden] {
+  display: none;
+}

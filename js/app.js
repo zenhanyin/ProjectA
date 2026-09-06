@@ -5,28 +5,38 @@
 
   let data = Storage.loadData();
   let activeRecordType = "expense";
-  const openedAt = new Date();
-  const openedEarned = C.getTodayEarned(data.settings, openedAt);
+  let sessionEarned = 0;
+  let sessionMeasuredAt = new Date();
 
   function saveAndRender() {
     Storage.saveData(data);
     render();
   }
 
-  function getSessionEarned() {
-    return Math.max(0, C.getTodayEarned(data.settings) - openedEarned);
+  function updateSessionEarned(now = new Date()) {
+    const elapsed = C.getEffectiveWorkMillisecondsBetween(data.settings, sessionMeasuredAt, now);
+    if (elapsed > 0) {
+      sessionEarned += (elapsed / 1000) * C.getIncomeRates(data.settings).second;
+    }
+    sessionMeasuredAt = now;
+  }
+
+  function resetSessionBaseline(now = new Date()) {
+    sessionEarned = 0;
+    sessionMeasuredAt = now;
   }
 
   function render() {
     document.documentElement.dataset.mode = data.displayMode;
-    UI.renderHome(data, getSessionEarned());
+    UI.renderHome(data, sessionEarned);
     UI.renderHistory(data);
     UI.renderMine(data);
     document.getElementById("onboarding").hidden = data.initialized;
   }
 
   function renderLiveMetrics() {
-    UI.renderHome(data, getSessionEarned());
+    updateSessionEarned();
+    UI.renderHome(data, sessionEarned);
   }
 
   function readSettings(form) {
@@ -37,6 +47,32 @@
       workStart: form.elements.workStart.value,
       workEnd: form.elements.workEnd.value
     };
+  }
+
+  function showFormError(form, message) {
+    let element = form.querySelector(".form-error");
+    if (!element) {
+      element = document.createElement("p");
+      element.className = "form-error span-2";
+      form.appendChild(element);
+    }
+    element.textContent = message;
+    element.hidden = false;
+  }
+
+  function clearFormError(form) {
+    const element = form.querySelector(".form-error");
+    if (element) element.hidden = true;
+  }
+
+  function readValidSettings(form) {
+    const settings = readSettings(form);
+    if (!C.isValidWorkSchedule(settings)) {
+      showFormError(form, "工作结束时间必须晚于工作开始时间。Phase 0.5 暂不支持跨午夜工作时段。");
+      return null;
+    }
+    clearFormError(form);
+    return settings;
   }
 
   function accountById(id) {
@@ -78,12 +114,14 @@
         document.querySelectorAll(".view").forEach(view => view.classList.remove("is-active"));
         tab.classList.add("is-active");
         document.getElementById(`${tab.dataset.tab}-view`).classList.add("is-active");
+        render();
       });
     });
   }
 
   function bindModeToggle() {
     document.getElementById("mode-toggle").addEventListener("click", () => {
+      updateSessionEarned();
       data.displayMode = data.displayMode === "focus" ? "detail" : "focus";
       saveAndRender();
     });
@@ -93,11 +131,7 @@
     const sheet = document.getElementById("quick-sheet");
     const form = document.getElementById("quick-record-form");
     document.getElementById("open-quick-record").addEventListener("click", () => {
-      if (data.displayMode === "focus") {
-        data.displayMode = "detail";
-        Storage.saveData(data);
-        render();
-      }
+      if (data.displayMode === "focus") return;
       sheet.hidden = false;
       document.getElementById("meaning-feedback").hidden = true;
       updateQuickRecordFields();
@@ -185,7 +219,9 @@
     document.getElementById("onboarding-form").addEventListener("submit", event => {
       event.preventDefault();
       const form = event.currentTarget;
-      data.settings = readSettings(form);
+      const settings = readValidSettings(form);
+      if (!settings) return;
+      data.settings = settings;
       data.accounts = [{
         id: Storage.createId("account"),
         name: form.elements.accountName.value.trim(),
@@ -204,6 +240,7 @@
 
       data.displayMode = data.displayMode || "focus";
       data.initialized = true;
+      resetSessionBaseline();
       saveAndRender();
     });
   }
@@ -211,7 +248,10 @@
   function bindMine() {
     document.getElementById("settings-form").addEventListener("submit", event => {
       event.preventDefault();
-      data.settings = readSettings(event.currentTarget);
+      const settings = readValidSettings(event.currentTarget);
+      if (!settings) return;
+      data.settings = settings;
+      resetSessionBaseline();
       saveAndRender();
     });
 
@@ -241,8 +281,10 @@
       account.balance = after;
       addTransaction("asset-adjustment", delta, account.id, "账户校准", "账户校准");
       saveAndRender();
-      document.getElementById("quick-sheet").hidden = false;
-      UI.showMeaningFeedback({ kind: "adjustment", amount: after, delta, before, after }, data);
+      if (data.displayMode === "detail") {
+        document.getElementById("quick-sheet").hidden = false;
+        UI.showMeaningFeedback({ kind: "adjustment", amount: after, delta, before, after }, data);
+      }
     });
 
     document.getElementById("liability-form").addEventListener("submit", event => {
@@ -300,6 +342,7 @@
 
   function init() {
     document.documentElement.dataset.mode = data.displayMode;
+    resetSessionBaseline();
     bindTabs();
     bindModeToggle();
     bindQuickRecord();
@@ -311,4 +354,3 @@
 
   document.addEventListener("DOMContentLoaded", init);
 })();
-

@@ -40,6 +40,7 @@
     document.documentElement.dataset.mode = data.displayMode;
     setText("app-title", data.displayMode === "focus" ? "今日推进" : "人生资本");
     renderModeToggle(data.displayMode);
+    renderQuickButton(data.displayMode);
 
     if (data.displayMode === "focus") {
       renderFocusHome(data, now);
@@ -58,13 +59,20 @@
     button.setAttribute("aria-pressed", mode === "detail" ? "true" : "false");
   }
 
+  function renderQuickButton(mode) {
+    const button = document.getElementById("open-quick-record");
+    if (!button) return;
+    button.hidden = mode === "focus";
+    button.setAttribute("aria-hidden", mode === "focus" ? "true" : "false");
+  }
+
   function renderFocusHome(data, now) {
     const workday = C.getWorkdayProgress(data.settings, now);
     const advance = C.getGoalDailyAdvance(data, now);
     const week = C.getWeekProgress(now);
     const stageProgress = advance.goal ? C.getGoalProgress(advance.goal) : 0;
     const completed = workday.completed;
-    const status = completed ? "今日完成" : workday.started ? "持续推进中" : "今日开始";
+    const status = workday.nonWorkingDay ? "休息日" : completed ? "今日完成" : workday.started ? "持续推进中" : "今日开始";
 
     document.getElementById("focus-home").innerHTML = `
       <section class="hero-panel quiet-hero">
@@ -84,7 +92,7 @@
         <article class="panel step-panel">
           <span class="step-index">现在</span>
           <h3>${status}</h3>
-          <p>这一秒正在进入今天的进度。</p>
+          <p>${workday.nonWorkingDay ? "今天不累计推进，保持节奏。" : "这一秒正在进入今天的进度。"}</p>
         </article>
         <article class="panel step-panel">
           <span class="step-index">今天</span>
@@ -94,7 +102,7 @@
         <article class="panel step-panel">
           <span class="step-index">未来</span>
           <h3>${advance.goal ? percent(stageProgress) : "未设置"}</h3>
-          <p>${advance.goal ? `当前阶段：${escapeHtml(advance.goal.name)}` : "可以在我的页面设置长期阶段。"}</p>
+          <p>${advance.goal ? `当前阶段：${escapeHtml(advance.goal.name)}` : "可以在详细模式设置长期阶段。"}</p>
         </article>
       </section>
 
@@ -140,6 +148,7 @@
     const summary = C.getAssetSummary(data);
     const advance = C.getGoalDailyAdvance(data, now);
     const goal = advance.goal;
+    const status = workday.nonWorkingDay ? "非工作日" : C.isWithinWorkTime(data.settings, now) ? "积累中" : workday.completed ? "今日完成" : "等待开始";
 
     document.getElementById("detail-home").innerHTML = `
       <section class="hero-panel">
@@ -150,7 +159,7 @@
           <div class="status-line">
             <span>已进行 ${C.formatDuration(workday.workedMilliseconds)}</span>
             <span>剩余 ${C.formatDuration(workday.remainingMilliseconds)}</span>
-            <span>${C.isWithinWorkTime(data.settings, now) ? "积累中" : workday.completed ? "今日完成" : "等待开始"}</span>
+            <span>${status}</span>
           </div>
         </div>
         <div class="live-card">
@@ -237,7 +246,7 @@
     const list = document.getElementById("history-list");
     if (!list) return;
     const items = getActivities(data);
-    setText("history-count", `${items.length} 条`);
+    setText("history-count", data.displayMode === "focus" ? `${items.length} 次` : `${items.length} 条`);
     list.innerHTML = "";
     if (!items.length) {
       list.appendChild(emptyState("还没有历史。记录现实变化后，这里会保留发生过的推进。"));
@@ -246,12 +255,29 @@
     items.forEach(item => {
       const row = document.createElement("article");
       row.className = "history-row";
-      row.innerHTML = getActivityMarkup(item, data, true);
+      row.innerHTML = data.displayMode === "focus" ? getFocusActivityMarkup(item) : getActivityMarkup(item, data);
       list.appendChild(row);
     });
   }
 
+  function getFocusActivityMarkup(activity) {
+    if (activity.kind === "transfer") {
+      return `<span>位置更新</span><strong>已记录</strong><small>${dateTime(activity.createdAt)}</small>`;
+    }
+    if (activity.kind === "goal") {
+      const delta = C.number(activity.progressAfter) - C.number(activity.progressBefore);
+      return `<span>阶段推进</span><strong>${delta >= 0 ? "+" : ""}${percent(delta, 2)}</strong><small>${dateTime(activity.createdAt)}</small>`;
+    }
+    const label = activity.type === "expense" ? "今日使用" : activity.type === "income" ? "今日获得" : "现实校准";
+    return `<span>${label}</span><strong>已记录</strong><small>${dateTime(activity.createdAt)}</small>`;
+  }
+
   function renderMine(data) {
+    if (data.displayMode === "focus") {
+      renderFocusMine(data);
+      return;
+    }
+    setText("mine-summary", "同一套数据，两种解释");
     fillSettingsForm(data);
     renderRates(data);
     renderOptions(document.getElementById("quick-account"), data.accounts, "默认账户");
@@ -260,6 +286,21 @@
     renderAccounts(data);
     renderLiabilities(data);
     renderGoalSettings(data);
+  }
+
+  function renderFocusMine(data) {
+    setText("mine-summary", "切换详细模式后管理参数");
+    const accountList = document.getElementById("account-list");
+    const liabilityList = document.getElementById("liability-list");
+    const goalList = document.getElementById("goal-settings-list");
+    const rateGrid = document.getElementById("rate-grid");
+    if (rateGrid) rateGrid.innerHTML = "";
+    if (accountList) accountList.innerHTML = `<p class="empty-state">专注模式下隐藏具体数据。</p>`;
+    if (liabilityList) liabilityList.innerHTML = `<p class="empty-state">专注模式下隐藏具体数据。</p>`;
+    if (goalList) {
+      const goal = C.getPrimaryGoal(data);
+      goalList.innerHTML = goal ? `<article class="simple-row"><span>当前阶段</span><strong>${percent(C.getGoalProgress(goal))}</strong></article>` : `<p class="empty-state">还没有长期阶段。</p>`;
+    }
   }
 
   function renderRates(data) {

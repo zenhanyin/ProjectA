@@ -71,3 +71,17 @@ https://zenhanyin.github.io/ProjectA/
 ```
 
 Do not print or persist the GitHub token when using the API fallback.
+
+## Cache Busting
+
+Before deploying a breaking HTML/CSS/JS change, update all static asset query versions in `index.html`:
+
+```html
+css/style.css?v=YYYYMMDD-label
+js/storage.js?v=YYYYMMDD-label
+js/calculations.js?v=YYYYMMDD-label
+js/ui.js?v=YYYYMMDD-label
+js/app.js?v=YYYYMMDD-label
+```
+
+This prevents GitHub Pages visitors from loading new HTML with stale cached JavaScript.
