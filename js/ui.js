@@ -13,7 +13,7 @@
     return `${sign}${money(Math.abs(value), digits)}`;
   }
 
-  function percent(value, digits = 0) {
+  function percent(value, digits = 1) {
     return `${(C.number(value) * 100).toFixed(digits)}%`;
   }
 
@@ -31,171 +31,247 @@
     if (element) element.textContent = value;
   }
 
-  function renderOptions(select, accounts, placeholder) {
-    select.innerHTML = "";
-    if (placeholder) {
-      const option = document.createElement("option");
-      option.value = "";
-      option.textContent = placeholder;
-      select.appendChild(option);
+  function progressBar(value, label) {
+    const width = C.clamp(value, 0, 1) * 100;
+    return `<div class="progress-track" aria-label="${escapeHtml(label)}"><div class="progress-fill" style="width: ${width}%"></div></div>`;
+  }
+
+  function renderHome(data, sessionEarned, now = new Date()) {
+    document.documentElement.dataset.mode = data.displayMode;
+    setText("app-title", data.displayMode === "focus" ? "今日推进" : "人生资本");
+    renderModeToggle(data.displayMode);
+
+    if (data.displayMode === "focus") {
+      renderFocusHome(data, now);
+      document.getElementById("detail-home").innerHTML = "";
+      return;
     }
-    accounts.forEach(account => {
-      const option = document.createElement("option");
-      option.value = account.id;
-      option.textContent = `${account.name} (${money(account.balance)})`;
-      select.appendChild(option);
+
+    document.getElementById("focus-home").innerHTML = "";
+    renderDetailHome(data, sessionEarned, now);
+  }
+
+  function renderModeToggle(mode) {
+    const button = document.getElementById("mode-toggle");
+    if (!button) return;
+    button.textContent = mode === "focus" ? "详细模式" : "专注模式";
+    button.setAttribute("aria-pressed", mode === "detail" ? "true" : "false");
+  }
+
+  function renderFocusHome(data, now) {
+    const workday = C.getWorkdayProgress(data.settings, now);
+    const advance = C.getGoalDailyAdvance(data, now);
+    const week = C.getWeekProgress(now);
+    const stageProgress = advance.goal ? C.getGoalProgress(advance.goal) : 0;
+    const completed = workday.completed;
+    const status = completed ? "今日完成" : workday.started ? "持续推进中" : "今日开始";
+
+    document.getElementById("focus-home").innerHTML = `
+      <section class="hero-panel quiet-hero">
+        <div>
+          <p class="label">今日进度</p>
+          <div class="hero-percent">${percent(workday.progress)}</div>
+          ${progressBar(workday.progress, "今日进度")}
+          <div class="status-line">
+            <span>已进行：${C.formatDuration(workday.workedMilliseconds)}</span>
+            <span>剩余：${C.formatDuration(workday.remainingMilliseconds)}</span>
+            <span>${status}</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="progress-chain">
+        <article class="panel step-panel">
+          <span class="step-index">现在</span>
+          <h3>${status}</h3>
+          <p>这一秒正在进入今天的进度。</p>
+        </article>
+        <article class="panel step-panel">
+          <span class="step-index">今天</span>
+          <h3>${percent(workday.progress)}</h3>
+          <p>今日阶段已经推进到这里。</p>
+        </article>
+        <article class="panel step-panel">
+          <span class="step-index">未来</span>
+          <h3>${advance.goal ? percent(stageProgress) : "未设置"}</h3>
+          <p>${advance.goal ? `当前阶段：${escapeHtml(advance.goal.name)}` : "可以在我的页面设置长期阶段。"}</p>
+        </article>
+      </section>
+
+      <section class="two-column">
+        <article class="panel">
+          <div class="section-heading"><h3>当前阶段</h3><span>${advance.goal ? percent(stageProgress) : "0.0%"}</span></div>
+          ${progressBar(stageProgress, "当前阶段")}
+          <div class="status-line column">
+            <span>今日推进：${advance.goal ? `+${percent(Math.max(0, advance.delta), 2)}` : "+0.00%"}</span>
+            <span>距离下一阶段：${advance.goal ? percent(1 - stageProgress) : "100.0%"}</span>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="section-heading"><h3>本周进度</h3><span>${week.completed} / ${week.total}</span></div>
+          ${progressBar(week.completed / week.total, "本周进度")}
+          <div class="week-dots">${Array.from({ length: week.total }, (_, index) => `<span class="week-dot ${index < week.completed ? "is-done" : ""}"></span>`).join("")}</div>
+        </article>
+      </section>
+
+      ${completed ? renderFocusDailyClear(data, now) : ""}
+    `;
+  }
+
+  function renderFocusDailyClear(data, now) {
+    const clear = C.getDailyClear(data, now);
+    return `
+      <section class="panel clear-panel">
+        <p class="eyebrow">今日结算</p>
+        <h3>今日完成</h3>
+        <div class="clear-grid focus-clear">
+          <div><span>今天投入</span><strong>${C.formatDuration(clear.investedTime)}</strong></div>
+          <div><span>今日推进</span><strong>${clear.goal ? `+${percent(Math.max(0, clear.progressDelta), 2)}` : "+0.00%"}</strong></div>
+          <div><span>当前阶段</span><strong>${clear.goal ? percent(clear.progressAfter) : "未设置"}</strong></div>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderDetailHome(data, sessionEarned, now) {
+    const rates = C.getIncomeRates(data.settings);
+    const workday = C.getWorkdayProgress(data.settings, now);
+    const feedback = C.getTodayFeedback(data, now);
+    const summary = C.getAssetSummary(data);
+    const advance = C.getGoalDailyAdvance(data, now);
+    const goal = advance.goal;
+
+    document.getElementById("detail-home").innerHTML = `
+      <section class="hero-panel">
+        <div>
+          <p class="label">今日进度</p>
+          <div class="hero-percent">${percent(workday.progress)}</div>
+          ${progressBar(workday.progress, "今日进度")}
+          <div class="status-line">
+            <span>已进行 ${C.formatDuration(workday.workedMilliseconds)}</span>
+            <span>剩余 ${C.formatDuration(workday.remainingMilliseconds)}</span>
+            <span>${C.isWithinWorkTime(data.settings, now) ? "积累中" : workday.completed ? "今日完成" : "等待开始"}</span>
+          </div>
+        </div>
+        <div class="live-card">
+          <p class="label">今日已获得</p>
+          <strong>${money(feedback.earnedFromWork)}</strong>
+          <span>+${money(rates.second, 4)} / 秒</span>
+          <small>本次打开以来 ${signedMoney(sessionEarned)}</small>
+        </div>
+      </section>
+
+      <section class="progress-chain detail-chain">
+        <article class="panel step-panel"><span class="step-index">现在</span><h3>${money(feedback.earnedFromWork)}</h3><p>时间正在变成今日劳动成果。</p></article>
+        <article class="panel step-panel"><span class="step-index">今天</span><h3>${money(feedback.retained)}</h3><p>今天仍然留下的部分。</p></article>
+        <article class="panel step-panel"><span class="step-index">未来</span><h3>${goal ? percent(C.getGoalProgress(goal)) : "未设置"}</h3><p>${goal ? `${escapeHtml(goal.name)} 正在推进。` : "设置长期阶段后，这里会连接今天与未来。"}</p></article>
+      </section>
+
+      <section class="two-column">
+        <article class="panel">
+          <div class="section-heading"><h3>劳动成果</h3><span>今天</span></div>
+          <div class="allocation-grid">
+            <div><span>今日获得</span><strong>${money(feedback.todayIncome)}</strong></div>
+            <div><span>用于今天</span><strong>${money(feedback.usedToday)}</strong></div>
+            <div><span>留给未来</span><strong>${money(feedback.retained)}</strong></div>
+            <div><span>成果保留率</span><strong>${percent(feedback.retentionRate)}</strong></div>
+          </div>
+          ${renderAllocationBar(feedback)}
+        </article>
+
+        <article class="panel">
+          <div class="section-heading"><h3>长期进度</h3><span>${goal ? percent(C.getGoalProgress(goal)) : "未设置"}</span></div>
+          ${goal ? `
+            <div class="large-number">${money(goal.currentAmount)}</div>
+            <p class="muted">目标 ${money(goal.targetAmount)} · 今日推进 +${percent(Math.max(0, advance.delta), 2)}</p>
+            ${progressBar(C.getGoalProgress(goal), "长期进度")}
+          ` : `<p class="empty-state">可以在我的页面添加一个真实阶段目标。</p>`}
+        </article>
+      </section>
+
+      <section class="panel sensitive-panel">
+        <div class="section-heading"><h3>当前资本</h3><span>详细模式</span></div>
+        <div class="capital-grid">
+          <div><span>当前</span><strong>${money(summary.netWorth)}</strong></div>
+          <div><span>资产</span><strong>${money(summary.totalAssets)}</strong></div>
+          <div><span>负债</span><strong>${money(summary.totalLiabilities)}</strong></div>
+        </div>
+      </section>
+
+      ${workday.completed ? renderDetailDailyClear(data, now) : ""}
+    `;
+  }
+
+  function renderAllocationBar(feedback) {
+    const used = feedback.todayIncome > 0 ? C.clamp(feedback.usedToday / feedback.todayIncome, 0, 1) : 0;
+    const future = C.clamp(1 - used, 0, 1);
+    return `
+      <div class="allocation-bar" aria-label="劳动成果分配">
+        <span style="width: ${used * 100}%"></span>
+        <strong style="width: ${future * 100}%"></strong>
+      </div>
+      <div class="allocation-labels"><span>用于今天 ${percent(used)}</span><span>留给未来 ${percent(future)}</span></div>
+    `;
+  }
+
+  function renderDetailDailyClear(data, now) {
+    const clear = C.getDailyClear(data, now);
+    return `
+      <section class="panel clear-panel sensitive-panel">
+        <p class="eyebrow">今日结算</p>
+        <h3>今日完成</h3>
+        <div class="clear-grid">
+          <div><span>今天投入</span><strong>${C.formatDuration(clear.investedTime)}</strong></div>
+          <div><span>劳动获得</span><strong>${signedMoney(clear.earned)}</strong></div>
+          <div><span>用于今天</span><strong>${money(clear.usedToday)}</strong></div>
+          <div><span>留给未来</span><strong>${signedMoney(clear.retained)}</strong></div>
+          <div><span>成果保留率</span><strong>${percent(clear.retentionRate)}</strong></div>
+          <div><span>今日推进</span><strong>${clear.goal ? `+${percent(Math.max(0, clear.progressDelta), 2)}` : "未设置"}</strong></div>
+        </div>
+        ${clear.goal ? `<p class="muted">${escapeHtml(clear.goal.name)}：${percent(clear.progressBefore)} → ${percent(clear.progressAfter)}</p>` : ""}
+      </section>
+    `;
+  }
+
+  function renderHistory(data) {
+    const list = document.getElementById("history-list");
+    if (!list) return;
+    const items = getActivities(data);
+    setText("history-count", `${items.length} 条`);
+    list.innerHTML = "";
+    if (!items.length) {
+      list.appendChild(emptyState("还没有历史。记录现实变化后，这里会保留发生过的推进。"));
+      return;
+    }
+    items.forEach(item => {
+      const row = document.createElement("article");
+      row.className = "history-row";
+      row.innerHTML = getActivityMarkup(item, data, true);
+      list.appendChild(row);
     });
   }
 
-  function renderDashboard(data, sessionEarned) {
-    const rates = C.getIncomeRates(data.settings);
-    const assetSummary = C.getAssetSummary(data);
-    const feedback = C.getTodayFeedback(data);
-    const todayEarned = C.getTodayEarned(data.settings);
-
-    setText("today-earned", money(todayEarned));
-    setText("per-second", `+${money(rates.second, 4)} / 秒`);
-    setText("work-status", C.isWithinWorkTime(data.settings) ? "工作时间内" : "非工作时间");
-    setText("session-earned", signedMoney(sessionEarned));
-    setText("net-worth", money(assetSummary.netWorth));
-    setText("total-assets", money(assetSummary.totalAssets));
-    setText("total-liabilities", money(assetSummary.totalLiabilities));
-    setText("worked-time", C.formatDuration(feedback.workedMilliseconds));
-    setText("today-spending", money(feedback.todaySpending));
-    setText("today-retained", money(feedback.retained));
-    setText("retention-rate", percent(feedback.retentionRate));
-    setText("goal-count", `${data.goals.length} 个目标`);
-
-    const liveAmount = document.getElementById("today-earned");
-    if (liveAmount) liveAmount.classList.toggle("is-live", C.isWithinWorkTime(data.settings));
-
-    renderGoals(data);
-    renderRecentActivity(data);
+  function renderMine(data) {
+    fillSettingsForm(data);
+    renderRates(data);
+    renderOptions(document.getElementById("quick-account"), data.accounts, "默认账户");
+    renderOptions(document.getElementById("quick-transfer-from"), data.accounts, "转出账户");
+    renderOptions(document.getElementById("quick-transfer-to"), data.accounts, "转入账户");
+    renderAccounts(data);
+    renderLiabilities(data);
+    renderGoalSettings(data);
   }
 
   function renderRates(data) {
     const rates = C.getIncomeRates(data.settings);
-    setText("daily-rate", money(rates.daily));
-    setText("hourly-rate", money(rates.hourly));
-    setText("minute-rate", money(rates.minute));
-    setText("second-rate", money(rates.second, 4));
-  }
-
-  function renderGoals(data) {
-    const list = document.getElementById("goal-list");
-    if (!list) return;
-    list.innerHTML = "";
-    if (!data.goals.length) {
-      list.appendChild(emptyState("还没有目标。可以在设置里创建一个长期积累目标。"));
-      return;
-    }
-
-    data.goals.forEach(goal => {
-      const progress = C.getGoalProgress(goal);
-      const item = document.createElement("article");
-      item.className = "goal-item";
-      item.innerHTML = `
-        <div class="goal-row">
-          <strong>${escapeHtml(goal.name)}</strong>
-          <span>${money(goal.currentAmount)} / ${money(goal.targetAmount)}</span>
-        </div>
-        <div class="progress-track" aria-label="${escapeHtml(goal.name)}进度">
-          <div class="progress-fill" style="width: ${progress * 100}%"></div>
-        </div>
-        <div class="goal-row subtle">
-          <span>${percent(progress, 1)}</span>
-          <span>${C.amountToLaborTime(goal.currentAmount, data.settings)}</span>
-        </div>
-      `;
-      list.appendChild(item);
-    });
-  }
-
-  function renderRecentActivity(data) {
-    const list = document.getElementById("recent-activity");
-    if (!list) return;
-    list.innerHTML = "";
-    const activities = [
-      ...data.transactions.map(item => ({ ...item, kind: "transaction" })),
-      ...data.transfers.map(item => ({ ...item, kind: "transfer" })),
-      ...data.goals.flatMap(goal => (goal.history || []).map(item => ({ ...item, kind: "goal", goalName: goal.name })))
-    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 8);
-
-    if (!activities.length) {
-      list.appendChild(emptyState("记录现实变化后，这里会显示最近反馈。"));
-      return;
-    }
-
-    activities.forEach(activity => {
-      const row = document.createElement("div");
-      row.className = "timeline-row";
-      row.innerHTML = getActivityMarkup(activity, data);
-      list.appendChild(row);
-    });
-  }
-
-  function getActivityMarkup(activity, data) {
-    if (activity.kind === "transfer") {
-      const from = findAccount(data, activity.fromAccountId);
-      const to = findAccount(data, activity.toAccountId);
-      return `
-        <span>资产转移</span>
-        <strong>${money(activity.amount)}</strong>
-        <small>${escapeHtml(from ? from.name : "账户")} → ${escapeHtml(to ? to.name : "账户")} · ${dateTime(activity.createdAt)}</small>
-      `;
-    }
-    if (activity.kind === "goal") {
-      return `
-        <span>${escapeHtml(activity.goalName)}</span>
-        <strong>${signedMoney(activity.delta)}</strong>
-        <small>${C.amountToLaborTime(activity.delta, data.settings)} · 推进 ${percent(activity.progressAfter - activity.progressBefore, 1)} · ${dateTime(activity.createdAt)}</small>
-      `;
-    }
-    const sign = activity.type === "expense" ? "-" : "+";
-    const label = activity.type === "expense" ? "支出" : activity.type === "income" ? "收入" : "资产调整";
-    return `
-      <span>${label} · ${escapeHtml(activity.category || "未分类")}</span>
-      <strong>${sign}${money(activity.amount)}</strong>
-      <small>${C.amountToLaborTime(activity.amount, data.settings)} · ${dateTime(activity.createdAt)}</small>
+    const element = document.getElementById("rate-grid");
+    if (!element) return;
+    element.innerHTML = `
+      <div><span>日获得</span><strong>${money(rates.daily)}</strong></div>
+      <div><span>小时</span><strong>${money(rates.hourly)}</strong></div>
+      <div><span>分钟</span><strong>${money(rates.minute)}</strong></div>
+      <div><span>每秒</span><strong>${money(rates.second, 4)}</strong></div>
     `;
-  }
-
-  function renderRecords(data) {
-    const transactionAccount = document.getElementById("transaction-account");
-    const transferFrom = document.getElementById("transfer-from");
-    const transferTo = document.getElementById("transfer-to");
-    if (transactionAccount) renderOptions(transactionAccount, data.accounts, "选择账户");
-    if (transferFrom) renderOptions(transferFrom, data.accounts, "转出账户");
-    if (transferTo) renderOptions(transferTo, data.accounts, "转入账户");
-
-    const list = document.getElementById("transaction-list");
-    setText("transaction-count", `${data.transactions.length + data.transfers.length} 条`);
-    if (!list) return;
-    list.innerHTML = "";
-    const records = [
-      ...data.transactions.map(item => ({ ...item, kind: "transaction" })),
-      ...data.transfers.map(item => ({ ...item, kind: "transfer" }))
-    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    if (!records.length) {
-      list.appendChild(emptyState("还没有流水。记录收入、支出或资产转移后会显示在这里。"));
-      return;
-    }
-
-    records.forEach(record => {
-      const row = document.createElement("div");
-      row.className = "record-row";
-      row.innerHTML = getActivityMarkup(record, data);
-      list.appendChild(row);
-    });
-  }
-
-  function renderSettings(data) {
-    renderRates(data);
-    fillSettingsForm(data);
-    renderAccounts(data);
-    renderLiabilities(data);
-    renderGoalSettings(data);
   }
 
   function fillSettingsForm(data) {
@@ -206,18 +282,39 @@
     });
   }
 
+  function renderOptions(select, accounts, placeholder) {
+    if (!select) return;
+    select.innerHTML = "";
+    const placeholderOption = document.createElement("option");
+    placeholderOption.value = "";
+    placeholderOption.textContent = placeholder;
+    select.appendChild(placeholderOption);
+    accounts.forEach(account => {
+      const option = document.createElement("option");
+      option.value = account.id;
+      option.textContent = account.name;
+      select.appendChild(option);
+    });
+  }
+
   function renderAccounts(data) {
     const list = document.getElementById("account-list");
     if (!list) return;
     list.innerHTML = "";
     if (!data.accounts.length) {
-      list.appendChild(emptyState("还没有资产账户。"));
+      list.appendChild(emptyState("还没有账户。"));
       return;
     }
     data.accounts.forEach(account => {
-      const row = document.createElement("div");
+      const row = document.createElement("article");
       row.className = "compact-row";
-      row.innerHTML = `<span>${escapeHtml(account.name)} · ${escapeHtml(account.type)}</span><strong>${money(account.balance)}</strong>`;
+      row.innerHTML = `
+        <div><strong>${escapeHtml(account.name)}</strong><span>${escapeHtml(account.type)}</span></div>
+        <form class="inline-account-form" data-account-id="${account.id}">
+          <input name="balance" type="number" step="0.01" value="${C.number(account.balance)}" aria-label="${escapeHtml(account.name)}当前金额">
+          <button class="secondary-action" type="submit">校准</button>
+        </form>
+      `;
       list.appendChild(row);
     });
   }
@@ -232,7 +329,7 @@
     }
     data.liabilities.forEach(liability => {
       const row = document.createElement("div");
-      row.className = "compact-row";
+      row.className = "simple-row";
       row.innerHTML = `<span>${escapeHtml(liability.name)}</span><strong>${money(liability.amount)}</strong>`;
       list.appendChild(row);
     });
@@ -243,20 +340,19 @@
     if (!list) return;
     list.innerHTML = "";
     if (!data.goals.length) {
-      list.appendChild(emptyState("还没有储蓄目标。"));
+      list.appendChild(emptyState("还没有长期阶段。"));
       return;
     }
-
     data.goals.forEach(goal => {
       const row = document.createElement("article");
       row.className = "goal-editor";
       row.innerHTML = `
         <div>
           <strong>${escapeHtml(goal.name)}</strong>
-          <span>${money(goal.currentAmount)} / ${money(goal.targetAmount)} · ${percent(C.getGoalProgress(goal), 1)}</span>
+          <span>${money(goal.currentAmount)} / ${money(goal.targetAmount)} · ${percent(C.getGoalProgress(goal))}</span>
         </div>
         <form class="inline-goal-form" data-goal-id="${goal.id}">
-          <input name="currentAmount" type="number" min="0" step="0.01" value="${C.number(goal.currentAmount)}" aria-label="${escapeHtml(goal.name)}当前金额">
+          <input name="currentAmount" type="number" min="0" step="0.01" value="${C.number(goal.currentAmount)}" aria-label="${escapeHtml(goal.name)}当前进度">
           <button class="secondary-action" type="submit">调整</button>
         </form>
       `;
@@ -264,25 +360,71 @@
     });
   }
 
-  function renderAll(data, sessionEarned) {
-    renderDashboard(data, sessionEarned);
-    renderRecords(data);
-    renderSettings(data);
+  function getActivities(data) {
+    return [
+      ...data.transactions.map(item => ({ ...item, kind: "transaction" })),
+      ...data.transfers.map(item => ({ ...item, kind: "transfer" })),
+      ...data.goals.flatMap(goal => (goal.history || []).map(item => ({ ...item, kind: "goal", goalName: goal.name })))
+    ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }
 
-  function showTransactionFeedback(transaction, data) {
-    const element = document.getElementById("transaction-feedback");
-    if (!element) return;
-    if (transaction.type !== "expense") {
-      element.hidden = true;
-      return;
+  function getActivityMarkup(activity, data) {
+    if (activity.kind === "transfer") {
+      const from = findAccount(data, activity.fromAccountId);
+      const to = findAccount(data, activity.toAccountId);
+      return `<span>账户转移</span><strong>${money(activity.amount)}</strong><small>${escapeHtml(from ? from.name : "账户")} → ${escapeHtml(to ? to.name : "账户")} · ${dateTime(activity.createdAt)}</small>`;
     }
-    const feedback = C.getTodayFeedback(data);
+    if (activity.kind === "goal") {
+      return `<span>${escapeHtml(activity.goalName)} 推进</span><strong>${signedMoney(activity.delta)}</strong><small>${C.amountToLaborTime(activity.delta, data.settings)} · ${percent(activity.progressBefore)} → ${percent(activity.progressAfter)} · ${dateTime(activity.createdAt)}</small>`;
+    }
+    const typeLabel = activity.type === "expense" ? "用于今天" : activity.type === "income" ? "额外获得" : "资产校准";
+    const sign = activity.type === "expense" ? "" : C.number(activity.amount) >= 0 ? "+" : "";
+    return `<span>${typeLabel} · ${escapeHtml(activity.category || activity.note || "记录")}</span><strong>${sign}${money(activity.amount)}</strong><small>${C.amountToLaborTime(activity.amount, data.settings)} · ${dateTime(activity.createdAt)}</small>`;
+  }
+
+  function showMeaningFeedback(result, data) {
+    const element = document.getElementById("meaning-feedback");
+    if (!element) return;
     element.hidden = false;
-    element.innerHTML = `
-      <span>本次消费 ${money(transaction.amount)}</span>
-      <strong>${C.amountToLaborTime(transaction.amount, data.settings)}</strong>
-      <small>今日已获得：${money(feedback.todayIncome)} · 消费后今日保留：${money(feedback.retained)} · 保留率：${percent(feedback.retentionRate)}</small>
+    element.innerHTML = renderMeaningFeedback(result, data);
+  }
+
+  function renderMeaningFeedback(result, data) {
+    const feedback = C.getTodayFeedback(data);
+    const advance = C.getGoalDailyAdvance(data);
+    if (result.kind === "expense") {
+      return `
+        <p class="eyebrow">意义反馈</p>
+        <h3>${money(result.amount)} 用于今天</h3>
+        <div class="feedback-lines">
+          <span>${C.amountToLaborTime(result.amount, data.settings)}</span>
+          <span>今天已经获得：${money(feedback.todayIncome)}</span>
+          <span>今天仍然留下：${money(feedback.retained)}</span>
+          <span>成果保留率：${percent(feedback.retentionRate)}</span>
+        </div>
+      `;
+    }
+    if (result.kind === "adjustment") {
+      return `
+        <p class="eyebrow">意义反馈</p>
+        <h3>${signedMoney(result.delta)} 本次校准</h3>
+        <div class="feedback-lines">
+          <span>${C.amountToLaborTime(result.delta, data.settings)}</span>
+          <span>长期进度：${advance.goal ? percent(advance.before) + " → " + percent(advance.after) : "未设置"}</span>
+        </div>
+      `;
+    }
+    if (result.kind === "transfer") {
+      return `
+        <p class="eyebrow">意义反馈</p>
+        <h3>${money(result.amount)} 改变了位置</h3>
+        <div class="feedback-lines"><span>这次转移不会计入今天的获得或用于今天。</span></div>
+      `;
+    }
+    return `
+      <p class="eyebrow">意义反馈</p>
+      <h3>${signedMoney(result.amount)} 进入今天</h3>
+      <div class="feedback-lines"><span>${C.amountToLaborTime(result.amount, data.settings)}</span><span>今天已经获得：${money(feedback.todayIncome)}</span></div>
     `;
   }
 
@@ -311,10 +453,10 @@
     money,
     signedMoney,
     percent,
-    renderAll,
-    renderDashboard,
-    renderRecords,
-    renderSettings,
-    showTransactionFeedback
+    renderHome,
+    renderHistory,
+    renderMine,
+    showMeaningFeedback,
+    renderOptions
   };
 })();

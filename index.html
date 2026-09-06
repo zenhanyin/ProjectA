@@ -4,311 +4,156 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Life Capital / 人生资本</title>
+    <script>
+      (function () {
+        try {
+          var data = JSON.parse(localStorage.getItem("lifeCapitalData") || "{}");
+          var mode = data.displayMode || "focus";
+          document.documentElement.dataset.mode = mode === "detail" ? "detail" : "focus";
+        } catch (error) {
+          document.documentElement.dataset.mode = "focus";
+        }
+      })();
+    </script>
     <link rel="stylesheet" href="css/style.css">
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Life Capital</p>
-          <h1>人生资本</h1>
+          <p class="eyebrow">人生进度</p>
+          <h1 id="app-title">今日开始</h1>
         </div>
-        <nav class="tabs" aria-label="主导航">
-          <button class="tab is-active" data-tab="dashboard" type="button">Dashboard</button>
-          <button class="tab" data-tab="records" type="button">记录</button>
-          <button class="tab" data-tab="settings" type="button">设置</button>
-        </nav>
+        <div class="top-actions">
+          <button class="mode-toggle" id="mode-toggle" type="button" aria-pressed="false">详细模式</button>
+          <button class="quick-add" id="open-quick-record" type="button" aria-label="快速记录">+</button>
+        </div>
       </header>
 
+      <nav class="tabs" aria-label="主导航">
+        <button class="tab is-active" data-tab="home" type="button">首页</button>
+        <button class="tab" data-tab="history" type="button">历史</button>
+        <button class="tab" data-tab="mine" type="button">我的</button>
+      </nav>
+
       <main>
-        <section class="view is-active" id="dashboard-view" aria-labelledby="dashboard-title">
-          <div class="hero-panel">
+        <section class="view is-active" id="home-view" aria-labelledby="home-title">
+          <h2 class="sr-only" id="home-title">首页</h2>
+          <section id="focus-home" class="mode-view focus-only" aria-label="专注模式首页"></section>
+          <section id="detail-home" class="mode-view detail-only" aria-label="详细模式首页"></section>
+        </section>
+
+        <section class="view" id="history-view" aria-labelledby="history-title">
+          <div class="section-heading">
             <div>
-              <p class="label">今日已获得</p>
-              <div class="live-amount" id="today-earned">¥0.00</div>
-              <div class="rate-line">
-                <span id="per-second">+¥0.0000 / 秒</span>
-                <span id="work-status">等待工作时间</span>
-              </div>
+              <p class="eyebrow">过去发生了什么</p>
+              <h2 id="history-title">历史</h2>
             </div>
-            <div class="session-gain">
-              <p class="label">本次打开以来</p>
-              <strong id="session-earned">+¥0.00</strong>
-            </div>
+            <span id="history-count">0 条</span>
           </div>
-
-          <div class="dashboard-grid">
-            <section class="metric-band" aria-labelledby="dashboard-title">
-              <h2 id="dashboard-title">资产状态</h2>
-              <div class="net-worth" id="net-worth">¥0.00</div>
-              <div class="asset-split">
-                <span>资产 <strong id="total-assets">¥0.00</strong></span>
-                <span>负债 <strong id="total-liabilities">¥0.00</strong></span>
-              </div>
-            </section>
-
-            <section class="metric-band">
-              <h2>今日反馈</h2>
-              <div class="feedback-grid">
-                <div>
-                  <span>工作时间</span>
-                  <strong id="worked-time">0分钟</strong>
-                </div>
-                <div>
-                  <span>今日支出</span>
-                  <strong id="today-spending">¥0.00</strong>
-                </div>
-                <div>
-                  <span>今日保留</span>
-                  <strong id="today-retained">¥0.00</strong>
-                </div>
-                <div>
-                  <span>保留率</span>
-                  <strong id="retention-rate">0%</strong>
-                </div>
-              </div>
-            </section>
-          </div>
-
-          <section class="content-section">
-            <div class="section-heading">
-              <h2>储蓄目标</h2>
-              <span id="goal-count">0 个目标</span>
-            </div>
-            <div class="goal-list" id="goal-list"></div>
-          </section>
-
-          <section class="content-section">
-            <div class="section-heading">
-              <h2>最近变化</h2>
-              <span>收入、支出、调整与转移</span>
-            </div>
-            <div class="timeline" id="recent-activity"></div>
-          </section>
+          <div class="history-list" id="history-list"></div>
         </section>
 
-        <section class="view" id="records-view" aria-labelledby="records-title">
-          <div class="two-column">
-            <section class="content-section">
-              <h2 id="records-title">添加流水</h2>
-              <form id="transaction-form" class="form-grid">
-                <label>
-                  类型
-                  <select name="type">
-                    <option value="expense">支出</option>
-                    <option value="income">收入</option>
-                    <option value="asset-adjustment">资产调整</option>
-                  </select>
-                </label>
-                <label>
-                  金额
-                  <input name="amount" type="number" min="0" step="0.01" required placeholder="68">
-                </label>
-                <label>
-                  账户
-                  <select name="accountId" id="transaction-account"></select>
-                </label>
-                <label>
-                  分类
-                  <input name="category" type="text" placeholder="午餐 / 工资 / 调整">
-                </label>
-                <label class="span-2">
-                  备注
-                  <input name="note" type="text" placeholder="可选">
-                </label>
-                <button class="primary-action span-2" type="submit">记录变化</button>
-              </form>
-              <div class="feedback-card" id="transaction-feedback" hidden></div>
-            </section>
-
-            <section class="content-section">
-              <h2>资产转移</h2>
-              <form id="transfer-form" class="form-grid">
-                <label>
-                  转出账户
-                  <select name="fromAccountId" id="transfer-from"></select>
-                </label>
-                <label>
-                  转入账户
-                  <select name="toAccountId" id="transfer-to"></select>
-                </label>
-                <label>
-                  金额
-                  <input name="amount" type="number" min="0" step="0.01" required placeholder="2000">
-                </label>
-                <label>
-                  备注
-                  <input name="note" type="text" placeholder="例如：转入投资账户">
-                </label>
-                <button class="secondary-action span-2" type="submit">记录转移</button>
-              </form>
-            </section>
+        <section class="view" id="mine-view" aria-labelledby="mine-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">低频管理</p>
+              <h2 id="mine-title">我的</h2>
+            </div>
+            <span id="mine-summary">同一套数据，两种解释</span>
           </div>
 
-          <section class="content-section">
-            <div class="section-heading">
-              <h2>流水记录</h2>
-              <span id="transaction-count">0 条</span>
-            </div>
-            <div class="transaction-list" id="transaction-list"></div>
-          </section>
-        </section>
-
-        <section class="view" id="settings-view" aria-labelledby="settings-title">
           <div class="two-column">
-            <section class="content-section">
-              <h2 id="settings-title">收入与工作时间</h2>
+            <section class="panel sensitive-panel">
+              <h3>工作与收入参数</h3>
               <form id="settings-form" class="form-grid">
-                <label>
-                  每月到手收入
-                  <input name="monthlyIncome" type="number" min="0" step="0.01" required>
-                </label>
-                <label>
-                  每月工作天数
-                  <input name="workingDaysPerMonth" type="number" min="1" step="1" required>
-                </label>
-                <label>
-                  每日工作小时
-                  <input name="workingHoursPerDay" type="number" min="0.5" step="0.5" required>
-                </label>
-                <label>
-                  工作开始时间
-                  <input name="workStart" type="time" required>
-                </label>
-                <label>
-                  工作结束时间
-                  <input name="workEnd" type="time" required>
-                </label>
-                <button class="primary-action span-2" type="submit">保存设置</button>
+                <label>每月到手收入<input name="monthlyIncome" type="number" min="0" step="0.01" required></label>
+                <label>每月工作天数<input name="workingDaysPerMonth" type="number" min="1" step="1" required></label>
+                <label>每日有效工作小时<input name="workingHoursPerDay" type="number" min="0.5" step="0.5" required></label>
+                <label>工作开始时间<input name="workStart" type="time" required></label>
+                <label>工作结束时间<input name="workEnd" type="time" required></label>
+                <button class="primary-action span-2" type="submit">保存参数</button>
               </form>
+              <div class="rate-grid" id="rate-grid"></div>
             </section>
 
-            <section class="content-section">
-              <h2>收入换算</h2>
-              <div class="rate-grid">
-                <div><span>日收入</span><strong id="daily-rate">¥0.00</strong></div>
-                <div><span>小时收入</span><strong id="hourly-rate">¥0.00</strong></div>
-                <div><span>分钟收入</span><strong id="minute-rate">¥0.00</strong></div>
-                <div><span>每秒收入</span><strong id="second-rate">¥0.0000</strong></div>
-              </div>
-            </section>
-          </div>
-
-          <div class="two-column">
-            <section class="content-section">
-              <h2>资产账户</h2>
+            <section class="panel sensitive-panel">
+              <h3>账户校准</h3>
               <form id="account-form" class="form-grid">
-                <label>
-                  账户名称
-                  <input name="name" type="text" required placeholder="银行卡">
-                </label>
-                <label>
-                  类型
-                  <select name="type">
-                    <option value="现金">现金</option>
-                    <option value="银行">银行</option>
-                    <option value="储蓄">储蓄</option>
-                    <option value="投资">投资</option>
-                    <option value="其他">其他</option>
-                  </select>
-                </label>
-                <label>
-                  当前金额
-                  <input name="balance" type="number" step="0.01" required placeholder="30000">
-                </label>
+                <label>账户名称<input name="name" type="text" required placeholder="银行卡"></label>
+                <label>类型<select name="type"><option value="现金">现金</option><option value="银行">银行</option><option value="储蓄">储蓄</option><option value="投资">投资</option><option value="其他">其他</option></select></label>
+                <label>当前金额<input name="balance" type="number" step="0.01" required placeholder="30000"></label>
                 <button class="secondary-action" type="submit">添加账户</button>
               </form>
               <div class="compact-list" id="account-list"></div>
             </section>
+          </div>
 
-            <section class="content-section">
-              <h2>负债</h2>
+          <div class="two-column">
+            <section class="panel sensitive-panel">
+              <h3>负债</h3>
               <form id="liability-form" class="form-grid">
-                <label>
-                  名称
-                  <input name="name" type="text" required placeholder="房贷 / 信用卡">
-                </label>
-                <label>
-                  当前金额
-                  <input name="amount" type="number" min="0" step="0.01" required placeholder="120000">
-                </label>
+                <label>名称<input name="name" type="text" required placeholder="房贷 / 信用卡"></label>
+                <label>当前金额<input name="amount" type="number" min="0" step="0.01" required placeholder="120000"></label>
                 <button class="secondary-action span-2" type="submit">添加负债</button>
               </form>
               <div class="compact-list" id="liability-list"></div>
             </section>
-          </div>
 
-          <section class="content-section">
-            <h2>储蓄目标</h2>
-            <form id="goal-form" class="form-grid goal-form">
-              <label>
-                目标名称
-                <input name="name" type="text" required placeholder="独立游戏基金">
-              </label>
-              <label>
-                目标金额
-                <input name="targetAmount" type="number" min="1" step="0.01" required placeholder="100000">
-              </label>
-              <label>
-                当前金额
-                <input name="currentAmount" type="number" min="0" step="0.01" required placeholder="38620">
-              </label>
-              <button class="primary-action" type="submit">添加目标</button>
-            </form>
-            <div class="goal-settings-list" id="goal-settings-list"></div>
-          </section>
+            <section class="panel sensitive-panel">
+              <h3>长期阶段</h3>
+              <form id="goal-form" class="form-grid">
+                <label>阶段名称<input name="name" type="text" required placeholder="自由基金"></label>
+                <label>阶段目标<input name="targetAmount" type="number" min="1" step="0.01" required placeholder="100000"></label>
+                <label>当前进度<input name="currentAmount" type="number" min="0" step="0.01" required placeholder="38620"></label>
+                <button class="primary-action" type="submit">添加阶段</button>
+              </form>
+              <div class="goal-settings-list" id="goal-settings-list"></div>
+            </section>
+          </div>
         </section>
       </main>
     </div>
 
+    <section class="quick-sheet" id="quick-sheet" hidden aria-labelledby="quick-title" role="dialog" aria-modal="true">
+      <div class="quick-panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">快速记录</p><h2 id="quick-title">发生了什么？</h2></div>
+          <button class="icon-button" id="close-quick-record" type="button" aria-label="关闭">×</button>
+        </div>
+        <div class="record-types" role="tablist" aria-label="记录类型">
+          <button class="record-type is-active" data-record-type="expense" type="button">支出</button>
+          <button class="record-type" data-record-type="income" type="button">收入</button>
+          <button class="record-type" data-record-type="adjustment" type="button">调整资产</button>
+          <button class="record-type" data-record-type="transfer" type="button">账户转移</button>
+        </div>
+        <form id="quick-record-form" class="form-grid">
+          <label class="record-amount">金额<input name="amount" type="number" min="0" step="0.01" required placeholder="68"></label>
+          <label class="record-note">用途<input name="note" type="text" placeholder="午餐"></label>
+          <label class="detail-field">账户<select name="accountId" id="quick-account"></select></label>
+          <label class="transfer-field" hidden>转出<select name="fromAccountId" id="quick-transfer-from"></select></label>
+          <label class="transfer-field" hidden>转入<select name="toAccountId" id="quick-transfer-to"></select></label>
+          <button class="primary-action span-2" type="submit">完成</button>
+        </form>
+        <div class="meaning-feedback" id="meaning-feedback" hidden></div>
+      </div>
+    </section>
+
     <section class="onboarding" id="onboarding" aria-labelledby="onboarding-title" hidden>
       <div class="onboarding-panel">
         <p class="eyebrow">初始化</p>
-        <h2 id="onboarding-title">建立你的现实财富经验值面板</h2>
+        <h2 id="onboarding-title">建立你的现实人生进度系统</h2>
         <form id="onboarding-form" class="form-grid">
-          <label>
-            每月到手收入
-            <input name="monthlyIncome" type="number" min="0" step="0.01" required placeholder="17000">
-          </label>
-          <label>
-            每月工作天数
-            <input name="workingDaysPerMonth" type="number" min="1" step="1" required value="22">
-          </label>
-          <label>
-            每日工作小时
-            <input name="workingHoursPerDay" type="number" min="0.5" step="0.5" required value="8">
-          </label>
-          <label>
-            工作开始时间
-            <input name="workStart" type="time" required value="09:00">
-          </label>
-          <label>
-            工作结束时间
-            <input name="workEnd" type="time" required value="18:00">
-          </label>
-          <label>
-            初始资产账户
-            <input name="accountName" type="text" required placeholder="银行卡">
-          </label>
-          <label>
-            账户类型
-            <select name="accountType">
-              <option value="银行">银行</option>
-              <option value="现金">现金</option>
-              <option value="储蓄">储蓄</option>
-              <option value="投资">投资</option>
-              <option value="其他">其他</option>
-            </select>
-          </label>
-          <label>
-            当前金额
-            <input name="accountBalance" type="number" step="0.01" required placeholder="80000">
-          </label>
-          <label>
-            负债金额
-            <input name="liabilityAmount" type="number" min="0" step="0.01" value="0">
-          </label>
-          <button class="primary-action span-2" type="submit">进入 Dashboard</button>
+          <label>每月到手收入<input name="monthlyIncome" type="number" min="0" step="0.01" required placeholder="17000"></label>
+          <label>每月工作天数<input name="workingDaysPerMonth" type="number" min="1" step="1" required value="22"></label>
+          <label>每日有效工作小时<input name="workingHoursPerDay" type="number" min="0.5" step="0.5" required value="8"></label>
+          <label>工作开始时间<input name="workStart" type="time" required value="09:00"></label>
+          <label>工作结束时间<input name="workEnd" type="time" required value="18:00"></label>
+          <label>初始账户<input name="accountName" type="text" required placeholder="银行卡"></label>
+          <label>账户类型<select name="accountType"><option value="银行">银行</option><option value="现金">现金</option><option value="储蓄">储蓄</option><option value="投资">投资</option><option value="其他">其他</option></select></label>
+          <label>当前金额<input name="accountBalance" type="number" step="0.01" required placeholder="80000"></label>
+          <label>负债金额<input name="liabilityAmount" type="number" min="0" step="0.01" value="0"></label>
+          <button class="primary-action span-2" type="submit">进入首页</button>
         </form>
       </div>
     </section>

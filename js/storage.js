@@ -3,6 +3,7 @@
 
   const defaultData = {
     initialized: false,
+    displayMode: "focus",
     settings: {
       monthlyIncome: 0,
       workingDaysPerMonth: 22,
@@ -22,15 +23,17 @@
   }
 
   function normalizeData(data) {
+    const source = data || {};
     return {
       ...clone(defaultData),
-      ...data,
-      settings: { ...defaultData.settings, ...(data && data.settings ? data.settings : {}) },
-      accounts: Array.isArray(data && data.accounts) ? data.accounts : [],
-      liabilities: Array.isArray(data && data.liabilities) ? data.liabilities : [],
-      transactions: Array.isArray(data && data.transactions) ? data.transactions : [],
-      transfers: Array.isArray(data && data.transfers) ? data.transfers : [],
-      goals: Array.isArray(data && data.goals) ? data.goals : []
+      ...source,
+      displayMode: source.displayMode === "detail" ? "detail" : "focus",
+      settings: { ...defaultData.settings, ...(source.settings || {}) },
+      accounts: Array.isArray(source.accounts) ? source.accounts : [],
+      liabilities: Array.isArray(source.liabilities) ? source.liabilities : [],
+      transactions: Array.isArray(source.transactions) ? source.transactions : [],
+      transfers: Array.isArray(source.transfers) ? source.transfers : [],
+      goals: Array.isArray(source.goals) ? source.goals : []
     };
   }
 

@@ -1,10 +1,15 @@
 (function () {
   const MS_PER_MINUTE = 60 * 1000;
   const MS_PER_HOUR = 60 * MS_PER_MINUTE;
+  const MS_PER_DAY = 24 * MS_PER_HOUR;
 
   function number(value) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
   }
 
   function parseTimeToMinutes(value) {
@@ -40,22 +45,34 @@
 
   function getWorkWindow(settings, now = new Date()) {
     const start = combineDateAndTime(now, settings.workStart);
-    const end = combineDateAndTime(now, settings.workEnd);
+    const configuredEnd = combineDateAndTime(now, settings.workEnd);
+    if (configuredEnd <= start) configuredEnd.setDate(configuredEnd.getDate() + 1);
 
-    if (end <= start) {
-      end.setDate(end.getDate() + 1);
-    }
-
-    return { start, end };
+    const maxWorkDuration = Math.max(0, number(settings.workingHoursPerDay) * MS_PER_HOUR);
+    const cappedEnd = new Date(start.getTime() + Math.min(configuredEnd - start, maxWorkDuration));
+    return { start, configuredEnd, end: cappedEnd };
   }
 
   function getWorkedMilliseconds(settings, now = new Date()) {
     const { start, end } = getWorkWindow(settings, now);
-    const maxWorkDuration = number(settings.workingHoursPerDay) * MS_PER_HOUR;
-    const workWindowDuration = end - start;
-    const cappedDuration = Math.max(0, Math.min(workWindowDuration, maxWorkDuration));
     if (now <= start) return 0;
-    return Math.min(now - start, cappedDuration);
+    return clamp(now - start, 0, end - start);
+  }
+
+  function getWorkdayProgress(settings, now = new Date()) {
+    const { start, end } = getWorkWindow(settings, now);
+    const total = Math.max(1, end - start);
+    const worked = getWorkedMilliseconds(settings, now);
+    return {
+      started: now >= start,
+      completed: worked >= total,
+      progress: clamp(worked / total, 0, 1),
+      workedMilliseconds: worked,
+      remainingMilliseconds: Math.max(0, total - worked),
+      totalMilliseconds: total,
+      start,
+      end
+    };
   }
 
   function getTodayEarned(settings, now = new Date()) {
@@ -64,8 +81,8 @@
   }
 
   function isWithinWorkTime(settings, now = new Date()) {
-    const { start, end } = getWorkWindow(settings, now);
-    return now >= start && now < end;
+    const progress = getWorkdayProgress(settings, now);
+    return progress.started && !progress.completed;
   }
 
   function isSameDay(isoValue, now = new Date()) {
@@ -96,17 +113,26 @@
   }
 
   function getTodayFeedback(data, now = new Date()) {
-    const todayIncome = getTodayEarned(data.settings, now) + getTodayTransactionTotal(data, "income", now);
-    const todaySpending = getTodayTransactionTotal(data, "expense", now);
-    const retained = todayIncome - todaySpending;
+    const earnedFromWork = getTodayEarned(data.settings, now);
+    const directIncome = getTodayTransactionTotal(data, "income", now);
+    const todayIncome = earnedFromWork + directIncome;
+    const usedToday = getTodayTransactionTotal(data, "expense", now);
+    const retained = todayIncome - usedToday;
     const retentionRate = todayIncome > 0 ? retained / todayIncome : 0;
+    const workday = getWorkdayProgress(data.settings, now);
 
     return {
+      earnedFromWork,
+      directIncome,
       todayIncome,
-      todaySpending,
+      usedToday,
       retained,
       retentionRate,
-      workedMilliseconds: getWorkedMilliseconds(data.settings, now)
+      workedMilliseconds: workday.workedMilliseconds,
+      remainingMilliseconds: workday.remainingMilliseconds,
+      progress: workday.progress,
+      completed: workday.completed,
+      started: workday.started
     };
   }
 
@@ -118,28 +144,77 @@
     const minutes = totalMinutes % 60;
     const days = totalMinutes / 60 / Math.max(0.01, number(settings.workingHoursPerDay));
 
-    if (hours <= 0) return `≈ ${minutes}分钟劳动收入`;
-    if (days >= 1) return `≈ ${hours}小时${minutes ? `${minutes}分钟` : ""}，≈ ${days.toFixed(1)}个工作日`;
-    return `≈ ${hours}小时${minutes ? `${minutes}分钟` : ""}劳动收入`;
+    if (hours <= 0) return `约 ${minutes}分钟劳动成果`;
+    if (days >= 1) return `约 ${hours}小时${minutes ? `${minutes}分钟` : ""}，约 ${days.toFixed(1)}个工作日`;
+    return `约 ${hours}小时${minutes ? `${minutes}分钟` : ""}劳动成果`;
+  }
+
+  function getPrimaryGoal(data) {
+    if (!data.goals.length) return null;
+    return [...data.goals].sort((a, b) => getGoalProgress(a) - getGoalProgress(b))[0];
   }
 
   function getGoalProgress(goal) {
+    if (!goal) return 0;
     const target = Math.max(1, number(goal.targetAmount));
-    return Math.min(1, Math.max(0, number(goal.currentAmount) / target));
+    return clamp(number(goal.currentAmount) / target, 0, 1);
+  }
+
+  function getGoalDailyAdvance(data, now = new Date()) {
+    const goal = getPrimaryGoal(data);
+    if (!goal) return { goal: null, before: 0, after: 0, delta: 0 };
+    const target = Math.max(1, number(goal.targetAmount));
+    const feedback = getTodayFeedback(data, now);
+    const current = number(goal.currentAmount);
+    const after = getGoalProgress(goal);
+    const before = clamp((current - feedback.retained) / target, 0, 1);
+    return { goal, before, after, delta: after - before };
+  }
+
+  function getDailyClear(data, now = new Date()) {
+    const feedback = getTodayFeedback(data, now);
+    const advance = getGoalDailyAdvance(data, now);
+    return {
+      completed: feedback.completed,
+      investedTime: feedback.workedMilliseconds,
+      earned: feedback.todayIncome,
+      usedToday: feedback.usedToday,
+      retained: feedback.retained,
+      retentionRate: feedback.retentionRate,
+      goal: advance.goal,
+      progressBefore: advance.before,
+      progressAfter: advance.after,
+      progressDelta: advance.delta
+    };
+  }
+
+  function getWeekProgress(now = new Date()) {
+    const day = now.getDay();
+    const weekday = day === 0 ? 7 : day;
+    return {
+      completed: Math.min(5, Math.max(0, weekday - 1)),
+      total: 5
+    };
   }
 
   function formatDuration(milliseconds) {
-    const totalMinutes = Math.floor(milliseconds / MS_PER_MINUTE);
+    const totalMinutes = Math.max(0, Math.floor(milliseconds / MS_PER_MINUTE));
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
     if (hours <= 0) return `${minutes}分钟`;
     return `${hours}小时${minutes}分钟`;
   }
 
+  function formatDateKey(date = new Date()) {
+    return date.toISOString().slice(0, 10);
+  }
+
   window.LifeCapitalCalculations = {
     number,
+    clamp,
     getIncomeRates,
     getWorkWindow,
+    getWorkdayProgress,
     getWorkedMilliseconds,
     getTodayEarned,
     isWithinWorkTime,
@@ -147,7 +222,12 @@
     getAssetSummary,
     getTodayFeedback,
     amountToLaborTime,
+    getPrimaryGoal,
     getGoalProgress,
-    formatDuration
+    getGoalDailyAdvance,
+    getDailyClear,
+    getWeekProgress,
+    formatDuration,
+    formatDateKey
   };
 })();
